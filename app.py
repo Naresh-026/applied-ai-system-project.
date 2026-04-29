@@ -184,6 +184,13 @@ with tab_ai:
             if result.get("error"):
                 st.error(f"⚠️ {result['error']}")
             else:
+                if result.get("fallback"):
+                    st.info(
+                        "⚡ Running in **offline / rule-based mode** "
+                        "(no API credits). Results are based on pattern matching — "
+                        "add credits for full Claude analysis."
+                    )
+
                 conf = result["confidence"]
                 conf_color = "green" if conf >= 75 else ("orange" if conf >= 50 else "red")
 

@@ -99,13 +99,85 @@ def analyze_code(code: str) -> dict:
         return result
 
     except anthropic.AuthenticationError:
-        return {
-            "error": "Invalid API key. Check ANTHROPIC_API_KEY in your .env file.",
-            "bugs": [], "confidence": 0, "raw": "", "steps": [],
-        }
-    except Exception as exc:
+        logger.warning("agent | auth error — falling back to rule-based analyser")
+        return _rule_based_fallback(code, patterns)
+    except anthropic.BadRequestError as exc:
+        # Catches "credit balance too low" and similar billing errors
+        if "credit" in str(exc).lower() or "balance" in str(exc).lower():
+            logger.warning("agent | no credits — falling back to rule-based analyser")
+            return _rule_based_fallback(code, patterns)
         logger.error(f"agent | error | {exc}")
-        return {"error": str(exc), "bugs": [], "confidence": 0, "raw": "", "steps": []}
+        return _rule_based_fallback(code, patterns)
+    except Exception as exc:
+        logger.warning(f"agent | api unavailable ({exc}) — falling back to rule-based analyser")
+        return _rule_based_fallback(code, patterns)
+
+
+def _rule_based_fallback(code: str, patterns: list[dict]) -> dict:
+    """
+    Offline fallback: match retrieved RAG patterns against the code via keyword
+    scoring. Returns the same dict shape as the Claude path.
+    """
+    logger.info("agent | fallback | running rule-based analysis")
+    code_lower = code.lower()
+    matched = []
+
+    for p in patterns:
+        hits = [kw for kw in p["keywords"] if kw.lower() in code_lower]
+        if len(hits) >= 2:  # require at least 2 keyword hits to flag a pattern
+            matched.append((len(hits), p))
+
+    matched.sort(key=lambda x: x[0], reverse=True)
+
+    if matched:
+        confidence = min(50 + 8 * len(matched), 80)  # cap at 80 — fallback is less certain
+        bugs_lines = []
+        report_bugs = []
+        for _, p in matched:
+            line = (
+                f"- [{p['id']}] {p['description']} | Severity: High\n"
+                f"  - Buggy pattern: `{p['example_bug']}`\n"
+                f"  - Suggested fix: `{p['example_fix']}`"
+            )
+            bugs_lines.append(line)
+            report_bugs.append(f"[{p['id']}] {p['description']}")
+
+        bugs_section = "\n".join(bugs_lines)
+        raw = (
+            f"**STEP 1 — PLAN** _(rule-based fallback mode — no API credits)_\n"
+            f"Scanning code against {len(patterns)} retrieved bug patterns from the knowledge base.\n\n"
+            f"**STEP 2 — ANALYZE**\n"
+            f"Keyword matching identified {len(matched)} potential issue(s).\n\n"
+            f"**STEP 3 — REPORT**\n\n"
+            f"---\n## Bug Report\n\n"
+            f"**Confidence Score:** {confidence}%\n\n"
+            f"### Bugs Found\n{bugs_section}\n\n"
+            f"### Code Summary\n"
+            f"Code analysed via offline rule-based engine using {len(patterns)} RAG-retrieved patterns.\n\n"
+            f"### Overall Assessment\n"
+            f"Found {len(matched)} likely issue(s). Add API credits to enable full Claude analysis for deeper insights.\n"
+            f"---"
+        )
+    else:
+        confidence = 60
+        raw = (
+            f"**STEP 1 — PLAN** _(rule-based fallback mode — no API credits)_\n"
+            f"Scanning code against {len(patterns)} retrieved bug patterns.\n\n"
+            f"**STEP 2 — ANALYZE**\nNo strong keyword matches found.\n\n"
+            f"**STEP 3 — REPORT**\n\n"
+            f"---\n## Bug Report\n\n"
+            f"**Confidence Score:** {confidence}%\n\n"
+            f"### Bugs Found\nNo bugs found.\n\n"
+            f"### Code Summary\nNo matching bug patterns detected in offline mode.\n\n"
+            f"### Overall Assessment\n"
+            f"Code appears clean based on rule-based checks. Add API credits for a full Claude review.\n"
+            f"---"
+        )
+
+    result = _parse_report(raw)
+    result["fallback"] = True
+    log_analysis(code, result)
+    return result
 
 
 def _parse_report(raw: str) -> dict:
