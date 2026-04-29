@@ -1,0 +1,102 @@
+[
+  {
+    "id": "BP001",
+    "category": "Logic Error",
+    "pattern": "inverted comparison hints",
+    "keywords": ["go higher", "go lower", "too high", "too low", "hint", "comparison", "guess > secret", "guess < secret"],
+    "description": "Comparison operators produce inverted feedback messages, telling the user the wrong direction.",
+    "example_bug": "if guess > secret: return 'Go higher!'",
+    "example_fix": "if guess > secret: return 'Go lower!'",
+    "explanation": "When the guess exceeds the secret, the user should be told to go LOWER. Swapped messages make the game unwinnable."
+  },
+  {
+    "id": "BP002",
+    "category": "State Management",
+    "pattern": "missing session_state persistence",
+    "keywords": ["random.randint", "session_state", "rerun", "st.rerun", "secret", "persist", "regenerat"],
+    "description": "A value that must persist across Streamlit reruns is computed at the top level instead of being stored in session_state.",
+    "example_bug": "secret = random.randint(1, 100)  # regenerated on every rerun",
+    "example_fix": "if 'secret' not in st.session_state:\n    st.session_state.secret = random.randint(1, 100)",
+    "explanation": "Streamlit reruns the entire script on every user interaction. Any value not stored in session_state is lost and recomputed."
+  },
+  {
+    "id": "BP003",
+    "category": "Configuration Error",
+    "pattern": "wrong difficulty range mapping",
+    "keywords": ["easy", "normal", "hard", "difficulty", "range", "1, 50", "1, 100", "1, 20", "get_range"],
+    "description": "Difficulty levels are mapped to incorrect number ranges, making harder modes easier or identical to other modes.",
+    "example_bug": "if difficulty == 'Easy': return 1, 100  # too hard for Easy",
+    "example_fix": "if difficulty == 'Easy': return 1, 20\nif difficulty == 'Normal': return 1, 50\nif difficulty == 'Hard': return 1, 100",
+    "explanation": "Easy should have the smallest range (fewest possibilities). Hard should have the largest. Swapped mappings invert the difficulty curve."
+  },
+  {
+    "id": "BP004",
+    "category": "UI/UX Bug",
+    "pattern": "enter key does not submit form",
+    "keywords": ["text_input", "form", "submit", "enter", "st.form", "form_submit_button", "key"],
+    "description": "A text input is not wrapped in st.form, so pressing Enter does not trigger submission.",
+    "example_bug": "raw_guess = st.text_input('Guess:')\nsubmit = st.button('Submit')",
+    "example_fix": "with st.form('guess_form'):\n    raw_guess = st.text_input('Guess:')\n    submit = st.form_submit_button('Submit')",
+    "explanation": "Streamlit's Enter-key form submission only works when st.text_input and st.form_submit_button are both inside a st.form block."
+  },
+  {
+    "id": "BP005",
+    "category": "Scoring Bug",
+    "pattern": "score rewarded on incorrect guess",
+    "keywords": ["update_score", "too high", "attempt_number", "% 2", "modulo", "+5", "reward", "wrong guess"],
+    "description": "The scoring function awards positive points for an incorrect guess under certain conditions.",
+    "example_bug": "if outcome == 'Too High' and attempt_number % 2 == 0:\n    return current_score + 5  # wrong: rewards bad guess",
+    "example_fix": "if outcome == 'Too High':\n    return current_score - 5  # always penalize wrong guesses",
+    "explanation": "Awarding +5 for wrong guesses lets the player farm points by intentionally guessing incorrectly on even attempts."
+  },
+  {
+    "id": "BP006",
+    "category": "State Reset Bug",
+    "pattern": "incomplete state reset on new game",
+    "keywords": ["new game", "reset", "attempts", "status", "session_state", "st.rerun", "playing"],
+    "description": "When the user starts a new game, not all session state keys are properly reset, causing stale state to affect the new game.",
+    "example_bug": "st.session_state.attempts = 1  # should reset to 0\n# status not reset → submit still blocked",
+    "example_fix": "st.session_state.attempts = 0\nst.session_state.status = 'playing'\nst.session_state.score = 0\nst.session_state.history = []\nst.session_state.secret = random.randint(low, high)\nst.rerun()",
+    "explanation": "If attempts starts at 1 instead of 0, the player loses one attempt before even guessing. If status is not reset, the st.stop() guard blocks the entire submit handler."
+  },
+  {
+    "id": "BP007",
+    "category": "Input Validation",
+    "pattern": "unhandled None or empty input",
+    "keywords": ["none", "empty", "parse", "raw", "text_input", "strip", "input validation", "is none"],
+    "description": "User input is not checked for None or empty string before parsing, causing AttributeError or ValueError.",
+    "example_bug": "value = int(raw)  # crashes if raw is None or ''",
+    "example_fix": "if raw is None or raw == '':\n    return False, None, 'Enter a guess.'\nvalue = int(raw)",
+    "explanation": "Streamlit text_input returns None before the user types anything. Calling int(None) raises TypeError."
+  },
+  {
+    "id": "BP008",
+    "category": "Off-By-One Error",
+    "pattern": "attempt counter initialized to wrong value",
+    "keywords": ["attempts", "attempt_limit", "attempts left", "initial", "session_state.attempts", "= 1", "= 0"],
+    "description": "The attempt counter starts at 1 instead of 0, making the player lose one attempt before they guess.",
+    "example_bug": "if 'attempts' not in st.session_state:\n    st.session_state.attempts = 1  # starts one ahead",
+    "example_fix": "if 'attempts' not in st.session_state:\n    st.session_state.attempts = 0",
+    "explanation": "Initializing to 1 means 'Attempts left' shows one fewer than allowed and the player gets one fewer guess than intended."
+  },
+  {
+    "id": "BP009",
+    "category": "Type Error",
+    "pattern": "string parsed as float loses precision",
+    "keywords": ["float", "int", "parse", "decimal", "precision", "int(float(", "truncat"],
+    "description": "Converting '3.9' → float → int gives 3, silently discarding the decimal instead of rejecting it.",
+    "example_bug": "value = int(float(raw))  # int(float('3.9')) = 3, not an error",
+    "example_fix": "# Acceptable if truncation is intended. Otherwise reject non-integers:\nif '.' in raw:\n    return False, None, 'Enter a whole number.'",
+    "explanation": "int(float('3.7')) silently truncates to 3. Depending on requirements this may be a silent bug or intentional behavior."
+  },
+  {
+    "id": "BP010",
+    "category": "Control Flow",
+    "pattern": "st.stop() prevents downstream handlers from running",
+    "keywords": ["st.stop", "stop", "status", "won", "lost", "submit", "blocked", "gate"],
+    "description": "st.stop() halts Streamlit script execution. If placed before a submit handler, the handler can never run after game-over.",
+    "example_bug": "if status != 'playing':\n    st.error('Game over')\n    st.stop()  # blocks everything below, including New Game reset",
+    "example_fix": "# Place New Game handler BEFORE the status gate\nif new_game:\n    # reset state\n    st.rerun()\nif status != 'playing':\n    st.stop()",
+    "explanation": "The New Game button handler must execute before st.stop() or the button becomes non-functional after game-over."
+  }
+]
